@@ -1,0 +1,12 @@
+{
+  "server": {
+    "port": "8080",
+    "baseUrl": "http://localhost:8080"
+  },
+  "database": {
+    "url": "postgres://postgres:postgres@localhost:5432/urlshortener?sslmode=disable",
+    "maxOpenConns": 25,
+    "maxIdleConns": 10,
+    "connMaxLifetimeSeconds": 300
+  }
+}
