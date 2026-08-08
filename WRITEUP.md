@@ -1,83 +1,94 @@
-WRITE-UP — URL Shortener & Link Analytics
-==========================================
+# WRITE-UP — URL Shortener & Link Analytics
 
+## 1. What did I ask the AI to do, and what did I write or decide myself?
 
-1. What did I ask the AI to do, and what did I write or decide myself?
-----------------------------------------------------------------------
+I used AI primarily as an implementation assistant to speed up repetitive coding tasks and boilerplate generation. This included generating the initial project scaffolding, router and middleware setup, Docker configuration, configuration loading, repository CRUD boilerplate, validator scaffolding, and the initial README structure. Every AI-generated change was reviewed, modified where necessary, and tested before being accepted.
 
-I used AI as a coding partner throughout the project. Here's how the work split:
+The architecture and key design decisions were my own:
 
-AI generated:
-- Initial boilerplate: router setup, middleware, config loader, Dockerfile, docker-compose
-- PostgreSQL repository CRUD methods (the repetitive query/scan patterns)
-- Validator functions and error struct scaffolding
-- README and project file structure
+* **Architecture:** I chose a layered architecture (Handler → Service → Repository → Store) inspired by the production Go services I work with. The initial AI suggestion followed Go's `internal/` convention, but I reorganized the project to better match the architecture I wanted.
+* **Short code generation:** I evaluated multiple approaches and selected **database sequence + block allocation** after considering scalability, operational simplicity, and URL length.
+* **Duplicate URL behavior:** I decided that shortening the same URL (without a custom alias) should be idempotent and return the existing short URL rather than creating duplicates.
+* **API response format:** I standardized all responses using a consistent `{requestId, payload, message}` / `{requestId, error}` format for easier debugging and tracing.
+* **Database ownership:** I moved database lifecycle management into the store layer so `main.go` only performs application orchestration and business services never depend directly on `*sql.DB`.
+* **Route design:** I separated API endpoints (`POST /api/v1/shorten`) from public redirect URLs (`GET /{code}`) to match how production URL shorteners are typically exposed.
 
-I decided and directed:
-- Architecture: I chose the layered pattern (handler > service > repository > store) based on a production codebase I work with. The AI defaulted to Go's internal/ convention; I overrode it.
-- Short code generation strategy: I evaluated three approaches and picked DB sequence + block allocation. This was entirely my decision after thinking through the trade-offs.
-- Duplicate URL policy: I decided that shortening the same URL twice (without alias) should be idempotent — return the existing short code. This is a product decision.
-- API response format: I standardized on {requestId, payload, message} / {requestId, error: {code, message}} based on a team convention I follow.
-- DB connection ownership: I moved all database lifecycle logic out of main.go into the store layer, so main.go is pure orchestration and services never see *sql.DB.
-- Route design: POST /api/v1/shorten for the API, GET /{code} at root for clean redirect URLs.
+Throughout the project, I treated AI as an implementation accelerator rather than an architectural decision maker.
 
+---
 
-2. Where did I override, correct, or throw away the AI's output — and why?
----------------------------------------------------------------------------
+## 2. Where did I override, correct, or throw away the AI's output — and why?
 
-Short code generator (replaced three times):
-- v1: AI generated crypto/rand Base62. Simple, but requires a DB existence check on every insert to avoid collisions. Unnecessary latency at scale.
-- v2: I asked for Snowflake-style. Works well, but produces 10-11 character codes and requires a MACHINE_ID environment variable on every instance. Over-configured for this problem.
-- v3 (final): DB sequence + block allocation. Shorter codes (7 chars), no machine config needed, one DB call per 10,000 inserts. I directed this approach and the AI implemented it.
+### Short code generation (replaced three times)
 
-Project structure (overridden multiple times):
-- AI created a top-level interfaces/ package with a single interface. I removed it — in Go, interfaces are defined where they're consumed. The service depends on the repo interface directly.
-- AI created a TenantRepository that forwarded every method to the store without adding behavior. I removed it — it was a pattern from a multi-tenant codebase that doesn't apply here. The service depends directly on the URLStore interface.
+I evaluated three different approaches before selecting the final implementation:
 
-Repository Manager:
-- AI initially passed *sql.DB directly to services from main.go. I restructured so the store layer owns the DB connection, the RepositoryManager acts as the abstraction layer, and services never see database details.
+* **Random Base62:** The initial implementation generated random codes, but every insert required checking the database for collisions. While simple, it introduces unnecessary database lookups as the system grows.
+* **Snowflake-based IDs:** I then explored a Snowflake-style generator. It solves distributed ID generation well, but produces longer URLs (typically 10–11 Base62 characters) and requires machine/node configuration, which felt unnecessary for this problem.
+* **Final approach — Database sequence + block allocation:** I chose this because it produces shorter URLs (around 7 characters), requires no machine configuration, guarantees uniqueness, and reduces database contention by allocating IDs in configurable blocks (10,000 IDs by default).
 
-Dead code removed:
-- repo/repoerr/ package: AI created it but nothing imported it. Deleted.
-- utils/common.go: Only had one function. Inlined into middleware.
-- Unused response models, helpers, and context keys: cleaned throughout.
+### Project structure
 
+I refactored several AI-generated structural decisions to better match the architecture:
 
-3. The two or three biggest trade-offs I made
-----------------------------------------------
+* The initial version contained a top-level `interfaces/` package with a single interface. I removed it and defined interfaces where they are consumed, following common Go practices.
+* The AI also generated a `TenantRepository` that simply forwarded every call to the store without adding behavior. Since this project is not multi-tenant, I removed that layer and had the service depend directly on the repository interface.
 
-Trade-off 1: Block allocation vs Snowflake vs Random
+### Repository ownership
 
-I chose DB sequence + block allocation because:
-- Produces 7-character codes (vs 10-11 for Snowflake). For a URL shortener, shorter is better.
-- No machine/node configuration needed. The database sequence coordinates all instances automatically.
-- One DB call per 10,000 inserts vs one per insert (random approach).
+Initially the AI passed `*sql.DB` directly from `main.go` into the application. I restructured the code so the store layer owns the database connection, while the `RepositoryManager` provides repositories to the service layer. This keeps infrastructure concerns separate from business logic.
 
-The downside: if the database is unreachable, we cannot allocate new blocks. But the service already depends on PostgreSQL for storage, so this doesn't introduce a new failure mode.
+### Cleanup
 
-If I needed fully decentralized ID generation without any shared state, I'd use Snowflake with machine IDs assigned by the orchestrator.
+During the final review I removed several unused AI-generated artifacts, including unused helper functions, response models, context keys, imports, and an unused `repoerr` package.
 
-Trade-off 2: Idempotent shortening vs always-generate-new
+---
 
-I chose: same URL without alias returns the existing short code.
-Alternative: always generate a new code (simpler, no GetByOriginalURL query needed).
+## 3. The two or three biggest trade-offs I made
 
-Why idempotent: Users expect the same URL to produce the same short link. It saves storage, reduces confusion, and makes the API cacheable. The extra DB lookup (indexed on original_url) is cheap.
+### Trade-off 1: Block allocation vs Snowflake vs Random IDs
 
-Trade-off 3: 301 vs 302 redirect
+I chose **database sequence + block allocation**.
 
-I chose 301 (Moved Permanently). Browsers and CDNs cache this, so repeated visits to the same short URL don't hit the server. This is the standard for permanent URL shorteners.
+Compared to the alternatives:
 
-The downside: cached redirects bypass the server, so click analytics under-count repeat visitors. In a production system with strict analytics requirements, I'd use 302 or 307 instead.
+* **Random IDs:** Simpler implementation but requires collision checks on every insert.
+* **Snowflake IDs:** Excellent for distributed systems but produces longer URLs and requires machine configuration.
+* **Block allocation:** Produces shorter URLs, guarantees uniqueness, minimizes database round-trips (one allocation per 10,000 IDs by default), and keeps the implementation operationally simple.
 
+The trade-off is that new ID blocks cannot be allocated if PostgreSQL is unavailable. Since the application already depends on PostgreSQL for persistence, this does not introduce an additional dependency or failure mode.
 
-4. What's missing, or what I'd do with another day
-----------------------------------------------------
+---
 
-- Rate limiting: No protection against abuse. Would add per-IP rate limiting middleware.
-- Expiration/TTL: Short codes live forever. Would add an optional expires_at field and a background cleanup job.
-- Analytics API: Click counts are tracked but not exposed via an endpoint. Would add GET /api/v1/stats/:code.
-- Caching: Would add Redis in front of redirect lookups for hot codes.
-- Integration tests: Would use testcontainers to spin up a real PostgreSQL and verify the block allocation round-trip end-to-end.
-- Observability: Structured logging is in place, but no Prometheus metrics or distributed tracing.
-- URL safety: Validation exists but there's no check against redirect to known phishing/malware domains.
+### Trade-off 2: Idempotent shortening vs always generating new short URLs
+
+I chose to make shortening **idempotent** when no custom alias is provided.
+
+If the same URL is shortened multiple times, the existing short URL is returned instead of creating duplicates.
+
+This improves user experience, avoids unnecessary storage growth, and allows clients to safely retry requests after transient failures. The alternative—always generating a new short URL—would simplify the implementation slightly but create duplicate records for identical URLs.
+
+---
+
+### Trade-off 3: 301 vs 302 redirect
+
+I chose **301 (Moved Permanently)** because it allows browsers and CDNs to cache redirects, reducing repeated requests to the service and improving redirect performance.
+
+The downside is that cached redirects reduce the accuracy of repeat-visit analytics because subsequent requests may never reach the server. If analytics accuracy were the primary requirement, I would instead choose **302** or **307** redirects.
+
+---
+
+## 4. What's missing, or what I'd do with another day
+
+With additional time, I would focus on production-oriented improvements rather than adding new features:
+
+* **Rate limiting:** Add per-IP rate limiting to prevent abuse and automated URL creation.
+* **Redis caching:** Cache frequently accessed short URLs to reduce database lookups during redirects.
+* **URL expiration:** Support optional expiration dates and background cleanup of expired links.
+* **Analytics API:** Expose click statistics through endpoints such as `GET /api/v1/stats/{code}`.
+* **Integration tests:** Add end-to-end tests using Testcontainers with a real PostgreSQL instance to validate block allocation and repository behavior.
+* **Observability:** Add Prometheus metrics and distributed tracing alongside the existing structured logging.
+* **Security improvements:** Add protection against redirecting to known malicious or phishing domains.
+* **Custom alias concurrency:** Improve handling of concurrent requests attempting to create the same custom alias with clearer conflict reporting.
+
+Overall, my goal was to use AI to accelerate implementation while ensuring that the architecture, design decisions, and trade-offs remained my own. I intentionally kept the solution simple and appropriate for the assessment instead of introducing enterprise patterns that would add complexity without providing meaningful value.
