@@ -17,10 +17,3 @@ type ShortenRequest struct {
 	URL   string `json:"url" binding:"required"`
 	Alias string `json:"alias,omitempty"`
 }
-
-// ShortenResponse is the response payload returned after shortening.
-type ShortenResponse struct {
-	ShortCode   string `json:"short_code"`
-	ShortURL    string `json:"short_url"`
-	OriginalURL string `json:"original_url"`
-}

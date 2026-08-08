@@ -1,6 +1,9 @@
 package utils
 
-import "github.com/gin-gonic/gin"
+import (
+	"encoding/json"
+	"net/http"
+)
 
 // SuccessResponse is the standard success response format.
 type SuccessResponse struct {
@@ -21,19 +24,27 @@ type ErrorPayload struct {
 	Message string `json:"message"`
 }
 
-// SendSuccess sends a standardized success JSON response.
-func SendSuccess(c *gin.Context, status int, payload any, message string) {
-	c.JSON(status, SuccessResponse{
-		RequestID: c.GetString("requestId"),
+type RedirectResponse struct {
+	Request    *http.Request
+	URL        string
+	StatusCode int
+}
+
+// WriteSuccess sends a standardized success JSON response.
+func WriteSuccess(w http.ResponseWriter, status int, payload any, message, requestID string) {
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(SuccessResponse{
+		RequestID: requestID,
 		Payload:   payload,
 		Message:   message,
 	})
 }
 
-// SendError sends a standardized error JSON response.
-func SendError(c *gin.Context, err *AppError) {
-	c.JSON(err.HTTPStatus, ErrorResponse{
-		RequestID: c.GetString("requestId"),
+// WriteError sends a standardized error JSON response.
+func WriteError(w http.ResponseWriter, err *AppError, requestID string) {
+	w.WriteHeader(err.HTTPStatus)
+	_ = json.NewEncoder(w).Encode(ErrorResponse{
+		RequestID: requestID,
 		Error: ErrorPayload{
 			Code:    err.Code,
 			Message: err.Message,

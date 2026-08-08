@@ -1,14 +1,14 @@
 package store
 
 import (
-"context"
-"database/sql"
-"fmt"
-"time"
+	"context"
+	"database/sql"
+	"fmt"
+	"time"
 
-_ "github.com/lib/pq"
+	_ "github.com/lib/pq"
 
-"github.com/abhishekmaurya/url-shortner/utils"
+	"github.com/abhishekmaurya/url-shortner/utils"
 )
 
 // Manager handles database connection lifecycle and provides access to stores.
@@ -40,7 +40,7 @@ func NewManager(cfg utils.DatabaseConfig) (*Manager, error) {
 	utils.Info("connected to database")
 
 	// Run migrations
-	urlStore := NewPostgresURLStore(db)
+	urlStore := NewURLShortenerStore(db)
 	if err := urlStore.Migrate(ctx); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
@@ -56,9 +56,8 @@ func (m *Manager) DB() *sql.DB {
 	return m.db
 }
 
-// URLStore returns the URL repository backed by PostgreSQL.
-func (m *Manager) URLStore() *PostgresURLStore {
-	return NewPostgresURLStore(m.db)
+func (m *Manager) URLStore() *URLShortenerStore {
+	return NewURLShortenerStore(m.db)
 }
 
 // Close closes the database connection.

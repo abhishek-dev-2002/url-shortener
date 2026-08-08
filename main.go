@@ -1,18 +1,16 @@
 package main
 
 import (
-"context"
-"fmt"
-"net/http"
-"os"
-"os/signal"
-"syscall"
-"time"
+	"context"
+	"fmt"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
-"github.com/abhishekmaurya/url-shortner/repo"
-"github.com/abhishekmaurya/url-shortner/services"
-"github.com/abhishekmaurya/url-shortner/services/urlshortener"
-"github.com/abhishekmaurya/url-shortner/utils"
+	"github.com/abhishekmaurya/url-shortner/repo"
+	"github.com/abhishekmaurya/url-shortner/utils"
 )
 
 func main() {
@@ -30,13 +28,8 @@ func main() {
 	}
 	defer repoManager.Close()
 
-	// Initialize service and handler
-	urlService := urlshortener.NewService(repoManager.URLRepo, cfg.Server.BaseURL)
-	urlHandler := urlshortener.NewHandler(urlService)
-	healthHandler := services.NewHealthHandler(repoManager)
-
 	// Setup router
-	router := urlshortener.SetupRouter(urlHandler, healthHandler)
+	router := setupRouting(context.Background(), repoManager, cfg.Server.BaseURL)
 
 	// Start server
 	server := &http.Server{

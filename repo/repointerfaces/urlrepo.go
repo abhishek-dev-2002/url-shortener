@@ -1,13 +1,13 @@
 package repointerfaces
 
 import (
-"context"
+	"context"
 
-"github.com/abhishekmaurya/url-shortner/models"
+	"github.com/abhishekmaurya/url-shortner/models"
 )
 
-// URLRepository defines the contract for URL persistence operations.
-type URLRepository interface {
+// URLStore defines the contract for URL persistence operations.
+type URLStore interface {
 	// CreateURL stores a new URL mapping.
 	CreateURL(ctx context.Context, url *models.URL) (*models.URL, error)
 

@@ -8,33 +8,30 @@ import (
 "github.com/abhishekmaurya/url-shortner/utils"
 )
 
-// RepositoryManager holds all repository instances and the store manager.
-// This is the abstraction layer that services depend on.
+// RepositoryManager owns the database lifecycle and exposes repository interfaces.
+// Services depend on this — never on *sql.DB directly.
 type RepositoryManager struct {
 	storeManager *store.Manager
-	URLRepo      repointerfaces.URLRepository
 }
 
-// NewRepositoryManager initializes the store manager (DB connection, migrations)
-// and wires up all repository implementations.
 func NewRepositoryManager(cfg utils.DatabaseConfig) (*RepositoryManager, error) {
 	storeMgr, err := store.NewManager(cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	return &RepositoryManager{
-		storeManager: storeMgr,
-		URLRepo:      storeMgr.URLStore(),
-	}, nil
+	return &RepositoryManager{storeManager: storeMgr}, nil
 }
 
-// DB exposes the underlying DB connection for health checks.
+// GetURLStore returns the URL repository (interface-typed for loose coupling).
+func (rm *RepositoryManager) GetURLStore() repointerfaces.URLStore {
+	return rm.storeManager.URLStore()
+}
+
 func (rm *RepositoryManager) DB() *sql.DB {
 	return rm.storeManager.DB()
 }
 
-// Close closes all store connections.
 func (rm *RepositoryManager) Close() error {
 	return rm.storeManager.Close()
 }

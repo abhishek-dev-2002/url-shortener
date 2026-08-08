@@ -1,11 +1,12 @@
 package urlshortener
 
 import (
-"context"
-"sync"
-"testing"
+	"context"
+	"sync"
+	"testing"
 
-"github.com/abhishekmaurya/url-shortner/models"
+	"github.com/abhishekmaurya/url-shortner/models"
+	
 )
 
 // mockRepo is a minimal in-memory repository for testing.
@@ -80,9 +81,10 @@ func (m *mockRepo) AllocateIDBlock(_ context.Context, blockSize int64) (int64, e
 // --- Tests ---
 
 func TestShorten_ValidURL(t *testing.T) {
-	svc := NewService(newMockRepo(), "http://localhost:8080")
+	mockRepository := newMockRepo()
+	svc := NewService(mockRepository, "http://localhost:8080")
 
-	resp, appErr := svc.Shorten(context.Background(), models.ShortenRequest{URL: "https://example.com/path"})
+	resp, appErr := svc.shorten(context.Background(), &models.ShortenRequest{URL: "https://example.com/path"})
 	if appErr != nil {
 		t.Fatalf("unexpected error: %s", appErr.Message)
 	}
@@ -98,11 +100,12 @@ func TestShorten_ValidURL(t *testing.T) {
 }
 
 func TestShorten_DuplicateURL_ReturnsExisting(t *testing.T) {
-	svc := NewService(newMockRepo(), "http://localhost:8080")
+	mockRepository := newMockRepo()
+	svc := NewService(mockRepository, "http://localhost:8080")
 	ctx := context.Background()
 
-	resp1, _ := svc.Shorten(ctx, models.ShortenRequest{URL: "https://example.com/dup"})
-	resp2, _ := svc.Shorten(ctx, models.ShortenRequest{URL: "https://example.com/dup"})
+	resp1, _ := svc.shorten(ctx, &models.ShortenRequest{URL: "https://example.com/dup"})
+	resp2, _ := svc.shorten(ctx, &models.ShortenRequest{URL: "https://example.com/dup"})
 
 	if resp1.ShortCode != resp2.ShortCode {
 		t.Errorf("expected same code for duplicate URL, got %s and %s", resp1.ShortCode, resp2.ShortCode)
@@ -110,9 +113,10 @@ func TestShorten_DuplicateURL_ReturnsExisting(t *testing.T) {
 }
 
 func TestShorten_CustomAlias(t *testing.T) {
-	svc := NewService(newMockRepo(), "http://localhost:8080")
+	mockRepository := newMockRepo()
+	svc := NewService(mockRepository, "http://localhost:8080")
 
-	resp, appErr := svc.Shorten(context.Background(), models.ShortenRequest{
+	resp, appErr := svc.shorten(context.Background(), &models.ShortenRequest{
 		URL:   "https://example.com",
 		Alias: "mysite",
 	})
@@ -125,11 +129,12 @@ func TestShorten_CustomAlias(t *testing.T) {
 }
 
 func TestShorten_DuplicateAlias_ReturnsConflict(t *testing.T) {
-	svc := NewService(newMockRepo(), "http://localhost:8080")
+	mockRepository := newMockRepo()
+	svc := NewService(mockRepository, "http://localhost:8080")
 	ctx := context.Background()
 
-	svc.Shorten(ctx, models.ShortenRequest{URL: "https://a.com", Alias: "taken"})
-	_, appErr := svc.Shorten(ctx, models.ShortenRequest{URL: "https://b.com", Alias: "taken"})
+	svc.shorten(ctx, &models.ShortenRequest{URL: "https://a.com", Alias: "taken"})
+	_, appErr := svc.shorten(ctx, &models.ShortenRequest{URL: "https://b.com", Alias: "taken"})
 
 	if appErr == nil || appErr.Code != "CONFLICT" {
 		t.Errorf("expected CONFLICT error, got %v", appErr)
@@ -137,11 +142,12 @@ func TestShorten_DuplicateAlias_ReturnsConflict(t *testing.T) {
 }
 
 func TestShorten_InvalidURL(t *testing.T) {
-	svc := NewService(newMockRepo(), "http://localhost:8080")
+	mockRepository := newMockRepo()
+	svc := NewService(mockRepository, "http://localhost:8080")
 
 	cases := []string{"", "not-a-url", "ftp://x.com", "javascript:alert(1)"}
 	for _, url := range cases {
-		_, appErr := svc.Shorten(context.Background(), models.ShortenRequest{URL: url})
+		_, appErr := svc.shorten(context.Background(), &models.ShortenRequest{URL: url})
 		if appErr == nil || appErr.Code != "BAD_REQUEST" {
 			t.Errorf("URL %q: expected BAD_REQUEST, got %v", url, appErr)
 		}
@@ -149,11 +155,12 @@ func TestShorten_InvalidURL(t *testing.T) {
 }
 
 func TestShorten_InvalidAlias(t *testing.T) {
-	svc := NewService(newMockRepo(), "http://localhost:8080")
+	mockRepository := newMockRepo()
+	svc := NewService(mockRepository, "http://localhost:8080")
 
 	cases := []string{"ab", "a", "abc-def", "has space", "toolongaliasthatisfar!!"}
 	for _, alias := range cases {
-		_, appErr := svc.Shorten(context.Background(), models.ShortenRequest{
+		_, appErr := svc.shorten(context.Background(), &models.ShortenRequest{
 			URL: "https://example.com", Alias: alias,
 		})
 		if appErr == nil || appErr.Code != "BAD_REQUEST" {
@@ -163,11 +170,12 @@ func TestShorten_InvalidAlias(t *testing.T) {
 }
 
 func TestResolve_ExistingCode(t *testing.T) {
-	svc := NewService(newMockRepo(), "http://localhost:8080")
+	mockRepository := newMockRepo()
+	svc := NewService(mockRepository, "http://localhost:8080")
 	ctx := context.Background()
 
-	resp, _ := svc.Shorten(ctx, models.ShortenRequest{URL: "https://example.com/resolve"})
-	originalURL, appErr := svc.Resolve(ctx, resp.ShortCode)
+	resp, _ := svc.shorten(ctx, &models.ShortenRequest{URL: "https://example.com/resolve"})
+	originalURL, appErr := svc.resolve(ctx, resp.ShortCode)
 
 	if appErr != nil {
 		t.Fatalf("unexpected error: %s", appErr.Message)
@@ -178,23 +186,25 @@ func TestResolve_ExistingCode(t *testing.T) {
 }
 
 func TestResolve_NotFound(t *testing.T) {
-	svc := NewService(newMockRepo(), "http://localhost:8080")
+	mockRepository := newMockRepo()
+	svc := NewService(mockRepository, "http://localhost:8080")
 
-	_, appErr := svc.Resolve(context.Background(), "nonexist")
+	_, appErr := svc.resolve(context.Background(), "nonexist")
 	if appErr == nil || appErr.Code != "NOT_FOUND" {
 		t.Errorf("expected NOT_FOUND, got %v", appErr)
 	}
 }
 
 func TestShorten_GeneratesUniqueCodes(t *testing.T) {
-	svc := NewService(newMockRepo(), "http://localhost:8080")
+	mockRepository := newMockRepo()
+	svc := NewService(mockRepository, "http://localhost:8080")
 	ctx := context.Background()
 	seen := make(map[string]bool)
 
 	for i := 0; i < 100; i++ {
-		resp, appErr := svc.Shorten(ctx, models.ShortenRequest{
-URL: "https://example.com/" + string(rune('a'+i%26)) + string(rune('0'+i/26)),
-})
+		resp, appErr := svc.shorten(ctx, &models.ShortenRequest{
+			URL: "https://example.com/" + string(rune('a'+i%26)) + string(rune('0'+i/26)),
+		})
 		if appErr != nil {
 			t.Fatalf("unexpected error on iter %d: %s", i, appErr.Message)
 		}
@@ -206,11 +216,12 @@ URL: "https://example.com/" + string(rune('a'+i%26)) + string(rune('0'+i/26)),
 }
 
 func TestShorten_AliasAllowsSameURLWithDifferentCodes(t *testing.T) {
-	svc := NewService(newMockRepo(), "http://localhost:8080")
+	mockRepository := newMockRepo()
+	svc := NewService(mockRepository, "http://localhost:8080")
 	ctx := context.Background()
 
-	resp1, _ := svc.Shorten(ctx, models.ShortenRequest{URL: "https://example.com/multi"})
-	resp2, _ := svc.Shorten(ctx, models.ShortenRequest{URL: "https://example.com/multi", Alias: "custom"})
+	resp1, _ := svc.shorten(ctx, &models.ShortenRequest{URL: "https://example.com/multi"})
+	resp2, _ := svc.shorten(ctx, &models.ShortenRequest{URL: "https://example.com/multi", Alias: "custom"})
 
 	if resp1.ShortCode == resp2.ShortCode {
 		t.Error("expected different codes for aliased vs auto-generated")

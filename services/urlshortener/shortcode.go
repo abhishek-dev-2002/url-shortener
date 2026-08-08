@@ -1,12 +1,12 @@
 package urlshortener
 
 import (
-"context"
-"fmt"
-"sync"
+	"context"
+	"fmt"
+	"sync"
 
-"github.com/abhishekmaurya/url-shortner/repo/repointerfaces"
-"github.com/abhishekmaurya/url-shortner/utils"
+	"github.com/abhishekmaurya/url-shortner/repo/repointerfaces"
+	"github.com/abhishekmaurya/url-shortner/utils"
 )
 
 // =========================================================================
@@ -64,31 +64,30 @@ import (
 // =========================================================================
 
 const (
-// BlockSize is the number of IDs allocated from DB per batch.
-BlockSize int64 = 10_000
+	// BlockSize is the number of IDs allocated from DB per batch.
+	BlockSize int64 = 10_000
 
-// Base62 alphabet for encoding.
-base62Chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+	// Base62 alphabet for encoding.
+	base62Chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
-// MinCodeLength pads short codes to at least this many characters.
-MinCodeLength = 7
+	// MinCodeLength pads short codes to at least this many characters.
+	MinCodeLength = 7
 )
 
 // CodeGenerator allocates blocks of IDs from the database sequence
 // and serves short codes from memory.
 type CodeGenerator struct {
 	mu      sync.Mutex
-	repo    repointerfaces.URLRepository
-	current int64 // current ID to serve
-	ceiling int64 // upper bound of current block (exclusive)
+	repo    repointerfaces.URLStore
+	current int64
+	ceiling int64
 }
 
-// NewCodeGenerator creates a new block-allocating code generator.
-func NewCodeGenerator(repo repointerfaces.URLRepository) *CodeGenerator {
+func NewCodeGenerator(repository repointerfaces.URLStore) *CodeGenerator {
 	return &CodeGenerator{
-		repo:    repo,
+		repo:    repository,
 		current: 0,
-		ceiling: 0, // forces allocation on first Generate()
+		ceiling: 0,
 	}
 }
 
@@ -98,7 +97,6 @@ func (g *CodeGenerator) Generate(ctx context.Context) (string, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	// If current block is exhausted, fetch a new one
 	if g.current >= g.ceiling {
 		if err := g.allocateBlock(ctx); err != nil {
 			return "", err
@@ -111,7 +109,6 @@ func (g *CodeGenerator) Generate(ctx context.Context) (string, error) {
 	return encodeBase62(id), nil
 }
 
-// allocateBlock fetches the next block of IDs from the database.
 func (g *CodeGenerator) allocateBlock(ctx context.Context) error {
 	start, err := g.repo.AllocateIDBlock(ctx, BlockSize)
 	if err != nil {

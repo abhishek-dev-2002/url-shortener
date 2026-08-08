@@ -1,33 +1,30 @@
 package urlshortener
 
 import (
-"github.com/gin-gonic/gin"
+	"context"
+	"net/http"
 
-"github.com/abhishekmaurya/url-shortner/services"
+	"github.com/gorilla/mux"
+
+	"github.com/abhishekmaurya/url-shortner/models"
+	"github.com/abhishekmaurya/url-shortner/repo"
+	"github.com/abhishekmaurya/url-shortner/services"
 )
 
-// SetupRouter configures all routes for the application.
-func SetupRouter(urlHandler *Handler, healthHandler *services.HealthHandler) *gin.Engine {
-	gin.SetMode(gin.ReleaseMode)
+// SetupURLShortenerRouting registers URL shortener endpoints.
+// Shorten lives under /api/v1, redirect lives at root level for clean short URLs.
+func SetupURLShortenerRouting(_ context.Context, repoMgr *repo.RepositoryManager, baseURL string, v1Router *mux.Router, rootRouter *mux.Router) {
+	service := NewService(repoMgr.GetURLStore(), baseURL)
 
-	router := gin.New()
+	// POST /api/v1/shorten
+	v1Router.Methods(http.MethodPost).Path("/shorten").Handler(
+		services.DecoderMiddleware(func() any {
+			return &models.ShortenRequest{}
+		}, services.GenerateHandlerFunc(repoMgr, service.Shorten)),
+	)
 
-	// Global middleware
-	router.Use(gin.Recovery())
-	router.Use(services.RequestIDMiddleware())
-	router.Use(services.RequestLoggerMiddleware())
-
-	// Health check
-	router.GET("/health", healthHandler.HealthCheck)
-
-	// API v1
-	v1 := router.Group("/api/v1")
-	{
-		v1.POST("/shorten", urlHandler.Shorten)
-	}
-
-	// Redirect at root level
-	router.GET("/:code", urlHandler.Redirect)
-
-	return router
+	// GET /{code} — at root level for clean redirect URLs
+	rootRouter.Methods(http.MethodGet).Path("/{code}").Handler(
+		services.GenerateHandlerFunc(repoMgr, service.Redirect),
+	)
 }

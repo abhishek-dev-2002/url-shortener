@@ -1,33 +1,29 @@
 package services
 
 import (
-"context"
-"database/sql"
-"net/http"
-"time"
-
-"github.com/gin-gonic/gin"
+	"context"
+	"database/sql"
+	"net/http"
+	"time"
 )
 
-// DBPinger is the interface that the health handler needs — just a ping.
-// The repo.RepositoryManager satisfies this via its DB() method.
+// DBPinger is the minimal contract needed by the health service.
 type DBPinger interface {
 	DB() *sql.DB
 }
 
-// HealthHandler provides health check endpoints.
-type HealthHandler struct {
+type HealthService struct {
 	pinger DBPinger
 }
 
-// NewHealthHandler creates a new health handler.
-func NewHealthHandler(pinger DBPinger) *HealthHandler {
-	return &HealthHandler{pinger: pinger}
+// NewHealthService creates a new health service.
+func NewHealthService(pinger DBPinger) *HealthService {
+	return &HealthService{pinger: pinger}
 }
 
-// HealthCheck returns the health status of the service and its dependencies.
-func (h *HealthHandler) HealthCheck(c *gin.Context) {
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
+// HealthCheck reports the status of the database dependency.
+func (h *HealthService) HealthCheck(r *http.Request) (any, error) {
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 
 	dbStatus := "up"
@@ -35,17 +31,15 @@ func (h *HealthHandler) HealthCheck(c *gin.Context) {
 		dbStatus = "down"
 	}
 
-	status := http.StatusOK
-	overall := "healthy"
+	status := "healthy"
 	if dbStatus == "down" {
-		status = http.StatusServiceUnavailable
-		overall = "unhealthy"
+		status = "unhealthy"
 	}
 
-	c.JSON(status, gin.H{
-"status": overall,
-"dependencies": gin.H{
-"postgres": dbStatus,
-},
-})
+	return map[string]any{
+		"status": status,
+		"dependencies": map[string]any{
+			"postgres": dbStatus,
+		},
+	}, nil
 }
