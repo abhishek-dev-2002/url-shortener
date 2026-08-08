@@ -5,40 +5,42 @@ WRITE-UP — URL Shortener & Link Analytics
 1. What did I ask the AI to do, and what did I write or decide myself?
 ----------------------------------------------------------------------
 
-I used AI (Kiro) as a coding partner throughout the project. Here's how the work split:
+I used AI as a coding partner throughout the project. Here's how the work split:
 
 AI generated:
-- Initial boilerplate: Gin router setup, middleware, config loader, Dockerfile, docker-compose
+- Initial boilerplate: router setup, middleware, config loader, Dockerfile, docker-compose
 - PostgreSQL repository CRUD methods (the repetitive query/scan patterns)
 - Validator functions and error struct scaffolding
 - README and project file structure
 
 I decided and directed:
-- Architecture: I chose the layered pattern (handler > service > repository) based on a production codebase I work with. The AI defaulted to Go's internal/ convention; I overrode it.
+- Architecture: I chose the layered pattern (handler > service > repository > store) based on a production codebase I work with. The AI defaulted to Go's internal/ convention; I overrode it.
 - Short code generation strategy: I evaluated three approaches and picked DB sequence + block allocation. This was entirely my decision after thinking through the trade-offs.
 - Duplicate URL policy: I decided that shortening the same URL twice (without alias) should be idempotent — return the existing short code. This is a product decision.
-- API response format: I standardized on {requestId, payload, error} based on a team convention I follow.
-- DB connection ownership: I moved all database lifecycle logic out of main.go into the store layer, so main.go is pure orchestration.
+- API response format: I standardized on {requestId, payload, message} / {requestId, error: {code, message}} based on a team convention I follow.
+- DB connection ownership: I moved all database lifecycle logic out of main.go into the store layer, so main.go is pure orchestration and services never see *sql.DB.
+- Route design: POST /api/v1/shorten for the API, GET /{code} at root for clean redirect URLs.
 
 
 2. Where did I override, correct, or throw away the AI's output — and why?
 ---------------------------------------------------------------------------
 
 Short code generator (replaced three times):
-- v1: AI generated crypto/rand Base62. Simple, but requires a DB existence check on every single insert to avoid collisions. Unnecessary latency at scale.
+- v1: AI generated crypto/rand Base62. Simple, but requires a DB existence check on every insert to avoid collisions. Unnecessary latency at scale.
 - v2: I asked for Snowflake-style. Works well, but produces 10-11 character codes and requires a MACHINE_ID environment variable on every instance. Over-configured for this problem.
 - v3 (final): DB sequence + block allocation. Shorter codes (7 chars), no machine config needed, one DB call per 10,000 inserts. I directed this approach and the AI implemented it.
 
-Project structure (overridden):
-- AI created a top-level interfaces/ package with a single interface. I removed it — in Go, interfaces belong where they're consumed. The handler defines its own URLService interface locally. Cleaner, less indirection.
+Project structure (overridden multiple times):
+- AI created a top-level interfaces/ package with a single interface. I removed it — in Go, interfaces are defined where they're consumed. The service depends on the repo interface directly.
+- AI created a TenantRepository that forwarded every method to the store without adding behavior. I removed it — it was a pattern from a multi-tenant codebase that doesn't apply here. The service depends directly on the URLStore interface.
 
 Repository Manager:
-- AI initially passed *sql.DB directly to services from main.go. I restructured so the store layer owns the DB connection, the RepositoryManager acts as the abstraction layer, and services never see *sql.DB.
+- AI initially passed *sql.DB directly to services from main.go. I restructured so the store layer owns the DB connection, the RepositoryManager acts as the abstraction layer, and services never see database details.
 
-Unnecessary abstractions (removed):
-- repo/repoerr/ package: AI created it but nothing imported it. Dead code, deleted.
-- utils/common.go: Only had one function (UUID generation). Inlined it into the middleware file.
-- SendInternalError helper: Never used anywhere. Removed.
+Dead code removed:
+- repo/repoerr/ package: AI created it but nothing imported it. Deleted.
+- utils/common.go: Only had one function. Inlined into middleware.
+- Unused response models, helpers, and context keys: cleaned throughout.
 
 
 3. The two or three biggest trade-offs I made
