@@ -1,16 +1,16 @@
 package urlshortener
 
 import (
-"context"
-"net/http"
-"strings"
+	"context"
+	"net/http"
+	"strings"
 
-"github.com/abhishekmaurya/url-shortner/models"
-"github.com/abhishekmaurya/url-shortner/repo/repointerfaces"
-"github.com/abhishekmaurya/url-shortner/services"
-"github.com/abhishekmaurya/url-shortner/utils"
-"github.com/abhishekmaurya/url-shortner/validator"
-"github.com/gorilla/mux"
+	"github.com/abhishekmaurya/url-shortner/models"
+	"github.com/abhishekmaurya/url-shortner/repo/repointerfaces"
+	"github.com/abhishekmaurya/url-shortner/services"
+	"github.com/abhishekmaurya/url-shortner/utils"
+	"github.com/abhishekmaurya/url-shortner/validator"
+	"github.com/gorilla/mux"
 )
 
 type Service struct {
@@ -28,7 +28,11 @@ func NewService(repository repointerfaces.URLStore, baseURL string) *Service {
 }
 
 func (s *Service) Shorten(r *http.Request) (any, error) {
-	return s.shorten(r.Context(), getShortenRequest(services.GetRequestBody(r)))
+	result, appErr := s.shorten(r.Context(), getShortenRequest(services.GetRequestBody(r)))
+	if appErr != nil {
+		return nil, appErr
+	}
+	return result, nil
 }
 
 func (s *Service) Redirect(r *http.Request) (any, error) {
@@ -100,33 +104,33 @@ func (s *Service) resolve(ctx context.Context, code string) (string, *utils.AppE
 	}
 
 	// Fire-and-forget: don't block redirect for analytics
-go func() {
-_ = s.repo.IncrementClickCount(context.Background(), code)
-}()
+	go func() {
+		_ = s.repo.IncrementClickCount(context.Background(), code)
+	}()
 
-return urlModel.OriginalURL, nil
+	return urlModel.OriginalURL, nil
 }
 
 func (s *Service) shortenWithAlias(ctx context.Context, input shortenInput) (*shortenOutput, *utils.AppError) {
-if appErr := validator.ValidateAlias(input.Alias); appErr != nil {
-return nil, appErr
-}
+	if appErr := validator.ValidateAlias(input.Alias); appErr != nil {
+		return nil, appErr
+	}
 
-exists, err := s.repo.ShortCodeExists(ctx, input.Alias)
-if err != nil {
-utils.Error("failed to check alias existence", "error", err, "alias", input.Alias)
-return nil, utils.InternalError("failed to check alias availability")
-}
-if exists {
-return nil, utils.Conflict("custom alias is already taken")
-}
+	exists, err := s.repo.ShortCodeExists(ctx, input.Alias)
+	if err != nil {
+		utils.Error("failed to check alias existence", "error", err, "alias", input.Alias)
+		return nil, utils.InternalError("failed to check alias availability")
+	}
+	if exists {
+		return nil, utils.Conflict("custom alias is already taken")
+	}
 
-created, err := s.repo.CreateURL(ctx, toURLModel(input, input.Alias, true))
-if err != nil {
-utils.Error("failed to create url with alias", "error", err, "alias", input.Alias)
-return nil, utils.InternalError("failed to create short url with alias")
-}
+	created, err := s.repo.CreateURL(ctx, toURLModel(input, input.Alias, true))
+	if err != nil {
+		utils.Error("failed to create url with alias", "error", err, "alias", input.Alias)
+		return nil, utils.InternalError("failed to create short url with alias")
+	}
 
-utils.Info("url shortened with alias", "alias", input.Alias, "original_url", input.OriginalURL)
-return toShortenOutput(s.baseURL, created), nil
+	utils.Info("url shortened with alias", "alias", input.Alias, "original_url", input.OriginalURL)
+	return toShortenOutput(s.baseURL, created), nil
 }
